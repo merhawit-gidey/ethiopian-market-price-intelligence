@@ -1,0 +1,960 @@
+import streamlit as st
+import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="Ethiopian Market Price Intelligence",
+    page_icon="🇪🇹",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+
+# ============================================================
+# CUSTOM CSS
+# ============================================================
+
+st.markdown(
+    """
+    <style>
+
+    .main-title {
+        font-size: 2.5rem;
+        font-weight: 700;
+        margin-bottom: 0;
+    }
+
+    .subtitle {
+        font-size: 1.05rem;
+        color: #6b7280;
+        margin-bottom: 1.5rem;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+@st.cache_data
+def load_data():
+
+    df = pd.read_csv(
+        "data/processed/ethiopia_prices_clean.csv"
+    )
+
+    df["price_date"] = pd.to_datetime(
+        df["price_date"]
+    )
+
+    return df
+
+
+df = load_data()
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.markdown(
+    '<div class="main-title">🇪🇹 Ethiopian Market Price Intelligence</div>',
+    unsafe_allow_html=True
+)
+
+st.markdown(
+    """
+    <div class="subtitle">
+    Explore commodity prices, market trends, regional differences,
+    and price volatility across Ethiopia.
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
+st.sidebar.title("🔎 Market Filters")
+
+st.sidebar.caption(
+    "Use the filters below to explore the dataset."
+)
+
+
+# Commodity
+commodity_options = sorted(
+    df["commodity"].dropna().unique()
+)
+
+selected_commodity = st.sidebar.multiselect(
+    "🌾 Commodity",
+    commodity_options,
+    default=commodity_options
+)
+
+
+# Region
+region_options = sorted(
+    df["adm1_name"].dropna().unique()
+)
+
+selected_region = st.sidebar.multiselect(
+    "📍 Region",
+    region_options
+)
+
+
+# Market
+market_options = sorted(
+    df["mkt_name"].dropna().unique()
+)
+
+selected_market = st.sidebar.multiselect(
+    "🏪 Market",
+    market_options
+)
+
+
+# Year
+min_year = int(df["year"].min())
+max_year = int(df["year"].max())
+
+selected_years = st.sidebar.slider(
+    "📅 Year range",
+    min_year,
+    max_year,
+    (min_year, max_year)
+)
+
+
+# ============================================================
+# APPLY FILTERS
+# ============================================================
+
+filtered_df = df.copy()
+
+if selected_commodity:
+    filtered_df = filtered_df[
+        filtered_df["commodity"].isin(
+            selected_commodity
+        )
+    ]
+
+if selected_region:
+    filtered_df = filtered_df[
+        filtered_df["adm1_name"].isin(
+            selected_region
+        )
+    ]
+
+if selected_market:
+    filtered_df = filtered_df[
+        filtered_df["mkt_name"].isin(
+            selected_market
+        )
+    ]
+
+filtered_df = filtered_df[
+    (filtered_df["year"] >= selected_years[0])
+    &
+    (filtered_df["year"] <= selected_years[1])
+]
+
+
+# ============================================================
+# KPI SECTION
+# ============================================================
+
+st.subheader("📊 Overview")
+
+col1, col2, col3, col4, col5 = st.columns(5)
+
+
+with col1:
+    st.metric(
+        "Price Records",
+        f"{len(filtered_df):,}"
+    )
+
+
+with col2:
+    st.metric(
+        "Commodities",
+        filtered_df["commodity"].nunique()
+    )
+
+
+with col3:
+    st.metric(
+        "Regions",
+        filtered_df["adm1_name"].nunique()
+    )
+
+
+with col4:
+    st.metric(
+        "Markets",
+        filtered_df["mkt_name"].nunique()
+    )
+
+
+with col5:
+
+    if len(filtered_df) > 0:
+        avg_price = filtered_df["close"].mean()
+
+        st.metric(
+            "Average Price",
+            f"{avg_price:,.2f} ETB"
+        )
+
+    else:
+        st.metric(
+            "Average Price",
+            "N/A"
+        )
+
+
+st.divider()
+
+
+# ============================================================
+# TABS
+# ============================================================
+
+tab1, tab2, tab3, tab4, tab5 = st.tabs(
+    [
+        "📈 Price Trends",
+        "🌾 Commodities",
+        "🗺️ Markets",
+        "📊 Volatility",
+        "🔎 Market Explorer"
+    ]
+)
+
+
+# ============================================================
+# TAB 1 — PRICE TRENDS
+# ============================================================
+
+with tab1:
+
+    st.subheader("📈 Historical Price Trends")
+
+    if len(filtered_df) > 0:
+
+        trend_df = (
+            filtered_df
+            .groupby(
+                ["price_date", "commodity"],
+                as_index=False
+            )
+            ["close"]
+            .mean()
+        )
+
+        fig = px.line(
+            trend_df,
+            x="price_date",
+            y="close",
+            color="commodity",
+            title="Average Closing Price Over Time",
+            labels={
+                "price_date": "Date",
+                "close": "Average Closing Price (ETB)",
+                "commodity": "Commodity"
+            }
+        )
+
+        fig.update_layout(
+            hovermode="x unified",
+            legend_title="Commodity"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+    else:
+        st.warning(
+            "No data matches the selected filters."
+        )
+
+
+# ============================================================
+# TAB 2 — COMMODITIES
+# ============================================================
+
+with tab2:
+
+    st.subheader("🌾 Commodity Analysis")
+
+    commodity_summary = (
+        filtered_df
+        .groupby("commodity", as_index=False)
+        .agg(
+            average_price=("close", "mean"),
+            minimum_price=("close", "min"),
+            maximum_price=("close", "max"),
+            records=("close", "count")
+        )
+        .sort_values(
+            "average_price",
+            ascending=False
+        )
+    )
+
+    if len(commodity_summary) > 0:
+
+        fig = px.bar(
+            commodity_summary,
+            x="commodity",
+            y="average_price",
+            text_auto=".2f",
+            title="Average Closing Price by Commodity",
+            labels={
+                "commodity": "Commodity",
+                "average_price": "Average Price (ETB)"
+            }
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        st.dataframe(
+            commodity_summary,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+# ============================================================
+# TAB 3 — MARKETS
+# ============================================================
+
+with tab3:
+
+    st.subheader("🗺️ Ethiopian Market Map")
+
+    map_df = filtered_df[
+        [
+            "lat",
+            "lon",
+            "mkt_name",
+            "adm1_name",
+            "commodity",
+            "close"
+        ]
+    ].dropna(
+        subset=["lat", "lon"]
+    )
+
+    if len(map_df) > 0:
+
+        # Average price per market/location
+        map_summary = (
+            map_df
+            .groupby(
+                [
+                    "mkt_name",
+                    "adm1_name",
+                    "lat",
+                    "lon"
+                ],
+                as_index=False
+            )
+            .agg(
+                average_price=("close", "mean")
+            )
+        )
+
+        fig = px.scatter_map(
+            map_summary,
+            lat="lat",
+            lon="lon",
+            hover_name="mkt_name",
+            hover_data={
+                "adm1_name": True,
+                "average_price": ":.2f",
+                "lat": False,
+                "lon": False
+            },
+            zoom=4.5,
+            height=600,
+            title="Average Market Prices Across Ethiopia"
+        )
+
+        fig.update_layout(
+            map_style="open-street-map"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        st.caption(
+            f"Showing {len(map_summary):,} market locations."
+        )
+
+    else:
+        st.warning(
+            "No geographic data available for the selected filters."
+        )
+
+
+# ============================================================
+# TAB 4 — VOLATILITY
+# ============================================================
+
+with tab4:
+
+    st.subheader("📊 Commodity Price Volatility")
+
+    volatility_df = (
+        filtered_df
+        .groupby("commodity")
+        .agg(
+            mean_price=("close", "mean"),
+            std_price=("close", "std")
+        )
+        .reset_index()
+    )
+
+    volatility_df["coefficient_of_variation"] = (
+        volatility_df["std_price"]
+        /
+        volatility_df["mean_price"]
+    )
+
+    volatility_df = volatility_df.sort_values(
+        "coefficient_of_variation",
+        ascending=False
+    )
+
+    if len(volatility_df) > 0:
+
+        fig = px.bar(
+            volatility_df,
+            x="commodity",
+            y="coefficient_of_variation",
+            text_auto=".3f",
+            title="Price Volatility by Commodity",
+            labels={
+                "commodity": "Commodity",
+                "coefficient_of_variation":
+                    "Coefficient of Variation"
+            }
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+        st.dataframe(
+            volatility_df,
+            use_container_width=True,
+            hide_index=True
+        )
+
+
+# ============================================================
+# TAB 5 — MARKET EXPLORER
+# ============================================================
+
+with tab5:
+
+    st.subheader("🔎 Market Explorer")
+
+    if len(filtered_df) > 0:
+
+        explorer_market = st.selectbox(
+            "Select a market",
+            sorted(
+                filtered_df["mkt_name"]
+                .dropna()
+                .unique()
+            )
+        )
+
+        market_df = filtered_df[
+            filtered_df["mkt_name"] == explorer_market
+        ]
+
+        if len(market_df) > 0:
+
+            market_col1, market_col2, market_col3 = st.columns(3)
+
+            with market_col1:
+
+                st.metric(
+                    "Average Price",
+                    f"{market_df['close'].mean():,.2f} ETB"
+                )
+
+            with market_col2:
+
+                st.metric(
+                    "Minimum Price",
+                    f"{market_df['close'].min():,.2f} ETB"
+                )
+
+            with market_col3:
+
+                st.metric(
+                    "Maximum Price",
+                    f"{market_df['close'].max():,.2f} ETB"
+                )
+
+            st.markdown("### 📈 Market Price History")
+
+            market_trend = (
+                market_df
+                .groupby(
+                    ["price_date", "commodity"],
+                    as_index=False
+                )
+                ["close"]
+                .mean()
+            )
+
+            fig = px.line(
+                market_trend,
+                x="price_date",
+                y="close",
+                color="commodity",
+                title=f"Price History — {explorer_market}",
+                labels={
+                    "price_date": "Date",
+                    "close": "Price (ETB)",
+                    "commodity": "Commodity"
+                }
+            )
+
+            fig.update_layout(
+                hovermode="x unified"
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True
+            )
+
+            st.markdown("### 📋 Market Information")
+
+            info_col1, info_col2 = st.columns(2)
+
+            with info_col1:
+
+                st.write(
+                    f"**Region:** "
+                    f"{market_df['adm1_name'].iloc[0]}"
+                )
+
+                st.write(
+                    f"**District/Zone:** "
+                    f"{market_df['adm2_name'].iloc[0]}"
+                )
+
+            with info_col2:
+
+                st.write(
+                    f"**Latitude:** "
+                    f"{market_df['lat'].iloc[0]}"
+                )
+
+                st.write(
+                    f"**Longitude:** "
+                    f"{market_df['lon'].iloc[0]}"
+                )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
+st.divider()
+
+st.caption(
+    "🇪🇹 Ethiopian Market Price Intelligence • "
+    "Historical market price analysis"
+)import streamlit as st
+import pandas as pd
+import plotly.express as px
+
+
+# ============================================================
+# PAGE CONFIG
+# ============================================================
+
+st.set_page_config(
+    page_title="Ethiopian Market Price Intelligence",
+    page_icon="🇪🇹",
+    layout="wide"
+)
+
+
+# ============================================================
+# LOAD DATA
+# ============================================================
+
+@st.cache_data
+def load_data():
+    df = pd.read_csv(
+        "data/processed/ethiopia_prices_clean.csv"
+    )
+
+    # Convert date column
+    df["price_date"] = pd.to_datetime(df["price_date"])
+
+    return df
+
+
+df = load_data()
+
+
+# ============================================================
+# HEADER
+# ============================================================
+
+st.title("🇪🇹 Ethiopian Market Price Intelligence")
+
+st.markdown(
+    """
+    **Explore historical commodity prices across Ethiopian markets, 
+    regions, and time periods.**
+    """
+)
+
+st.divider()
+
+
+# ============================================================
+# SIDEBAR FILTERS
+# ============================================================
+
+st.sidebar.header("🔎 Filters")
+
+
+# Commodity
+commodities = sorted(df["commodity"].dropna().unique())
+
+selected_commodity = st.sidebar.selectbox(
+    "Commodity",
+    ["All"] + commodities
+)
+
+
+# Region
+regions = sorted(df["adm1_name"].dropna().unique())
+
+selected_region = st.sidebar.selectbox(
+    "Region",
+    ["All"] + regions
+)
+
+
+# Market
+markets = sorted(df["mkt_name"].dropna().unique())
+
+selected_market = st.sidebar.selectbox(
+    "Market",
+    ["All"] + markets
+)
+
+
+# Year
+years = sorted(df["year"].dropna().unique())
+
+selected_year = st.sidebar.selectbox(
+    "Year",
+    ["All"] + years
+)
+
+
+# ============================================================
+# APPLY FILTERS
+# ============================================================
+
+filtered_df = df.copy()
+
+
+if selected_commodity != "All":
+    filtered_df = filtered_df[
+        filtered_df["commodity"] == selected_commodity
+    ]
+
+
+if selected_region != "All":
+    filtered_df = filtered_df[
+        filtered_df["adm1_name"] == selected_region
+    ]
+
+
+if selected_market != "All":
+    filtered_df = filtered_df[
+        filtered_df["mkt_name"] == selected_market
+    ]
+
+
+if selected_year != "All":
+    filtered_df = filtered_df[
+        filtered_df["year"] == selected_year
+    ]
+
+
+# ============================================================
+# KPI SECTION
+# ============================================================
+
+st.subheader("📊 Overview")
+
+
+col1, col2, col3, col4 = st.columns(4)
+
+
+with col1:
+    st.metric(
+        "Price Records",
+        f"{len(filtered_df):,}"
+    )
+
+
+with col2:
+    st.metric(
+        "Commodities",
+        filtered_df["commodity"].nunique()
+    )
+
+
+with col3:
+    st.metric(
+        "Regions",
+        filtered_df["adm1_name"].nunique()
+    )
+
+
+with col4:
+    st.metric(
+        "Markets",
+        filtered_df["mkt_name"].nunique()
+    )
+
+
+st.divider()
+
+
+# ============================================================
+# PRICE TREND
+# ============================================================
+
+st.subheader("📈 Price Trend")
+
+
+if len(filtered_df) > 0:
+
+    trend_df = (
+        filtered_df
+        .groupby("price_date", as_index=False)["close"]
+        .mean()
+    )
+
+    fig = px.line(
+        trend_df,
+        x="price_date",
+        y="close",
+        title="Average Closing Price Over Time",
+        labels={
+            "price_date": "Date",
+            "close": "Average Closing Price (ETB)"
+        }
+    )
+
+    fig.update_layout(
+        hovermode="x unified"
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+else:
+    st.warning("No data available for the selected filters.")
+
+
+# ============================================================
+# COMMODITY COMPARISON
+# ============================================================
+
+st.subheader("🌾 Commodity Comparison")
+
+
+commodity_df = (
+    filtered_df
+    .groupby("commodity", as_index=False)
+    .agg(
+        average_price=("close", "mean"),
+        minimum_price=("close", "min"),
+        maximum_price=("close", "max")
+    )
+    .sort_values(
+        "average_price",
+        ascending=False
+    )
+)
+
+
+if len(commodity_df) > 0:
+
+    fig = px.bar(
+        commodity_df,
+        x="commodity",
+        y="average_price",
+        title="Average Closing Price by Commodity",
+        labels={
+            "commodity": "Commodity",
+            "average_price": "Average Price (ETB)"
+        }
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+
+# ============================================================
+# REGIONAL ANALYSIS
+# ============================================================
+
+st.subheader("🗺️ Regional Price Analysis")
+
+
+regional_df = (
+    filtered_df
+    .groupby("adm1_name", as_index=False)
+    .agg(
+        average_price=("close", "mean"),
+        records=("close", "count")
+    )
+    .sort_values(
+        "average_price",
+        ascending=False
+    )
+)
+
+
+if len(regional_df) > 0:
+
+    fig = px.bar(
+        regional_df,
+        x="adm1_name",
+        y="average_price",
+        title="Average Closing Price by Region",
+        labels={
+            "adm1_name": "Region",
+            "average_price": "Average Price (ETB)"
+        }
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+
+# ============================================================
+# PRICE VOLATILITY
+# ============================================================
+
+st.subheader("📊 Price Volatility")
+
+
+volatility_df = (
+    filtered_df
+    .groupby("commodity")
+    .agg(
+        mean_price=("close", "mean"),
+        std_price=("close", "std")
+    )
+    .reset_index()
+)
+
+
+volatility_df["coefficient_of_variation"] = (
+    volatility_df["std_price"] /
+    volatility_df["mean_price"]
+)
+
+
+volatility_df = volatility_df.sort_values(
+    "coefficient_of_variation",
+    ascending=False
+)
+
+
+if len(volatility_df) > 0:
+
+    fig = px.bar(
+        volatility_df,
+        x="commodity",
+        y="coefficient_of_variation",
+        title="Commodity Price Volatility",
+        labels={
+            "commodity": "Commodity",
+            "coefficient_of_variation":
+                "Coefficient of Variation"
+        }
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True
+    )
+
+
+# ============================================================
+# DATA TABLE
+# ============================================================
+
+st.subheader("🔎 Market Data")
+
+
+display_columns = [
+    "price_date",
+    "adm1_name",
+    "adm2_name",
+    "mkt_name",
+    "commodity",
+    "open",
+    "high",
+    "low",
+    "close",
+    "currency",
+    "trust"
+]
+
+
+st.dataframe(
+    filtered_df[display_columns],
+    use_container_width=True,
+    hide_index=True
+)
